@@ -1,0 +1,393 @@
+// Board.java
+package tetris;
+
+import java.util.*;
+
+/**
+ CS108 Tetris Board.
+ Represents a Tetris board -- essentially a 2-d grid
+ of booleans. Supports tetris pieces and row clearing.
+ Has an "undo" feature that allows clients to add and remove pieces efficiently.
+ Does not do any drawing or have any idea of pixels. Instead,
+ just represents the abstract 2-d board.
+*/
+public class Board	{
+	// Some ivars are stubbed out for you:
+	private int width;
+	private int height;
+	private boolean[][] grid;
+	private boolean DEBUG = true;
+	boolean committed;
+	private int[] widthsArray;
+	private int[] heightsArray;
+	private boolean[][] gridCopy;
+	private int[] widthBackup;
+	private int[] heightBackup;
+	
+	// Here a few trivial methods are provided:
+	/**
+	 Creates an empty board of the given width and height
+	 measured in blocks.
+	*/
+	public Board(int width, int height) {
+		this.width = width;
+		this.height = height;
+		grid = new boolean[width][height];
+		//initialize fully empty grid and arrays
+		for(int i=0; i<grid.length; i++){
+			for(int j=0; j<grid[i].length; j++){
+				grid[i][j] = false;
+			}
+		}
+		//create widthsArray and heightsArray filled with 0 (empty)
+		widthsArray = new int[height];
+		heightsArray = new int[width];
+		for(int i=0; i<height; i++){
+			widthsArray[i] = 0;
+		}
+		for(int i=0; i<width; i++){
+			heightsArray[i] = 0;
+		}
+		//ready to call place()
+		committed = true;
+	}
+		
+	/**
+	 Returns the width of the board in blocks.
+	*/
+	public int getWidth() {
+		return width;
+	}
+	
+	/**
+	 Returns the height of the board in blocks.
+	*/
+	public int getHeight() {
+		return height;
+	}
+	
+	/**
+	 Returns the max column height present in the board.
+	 For an empty board this is 0.
+	*/
+	public int getMaxHeight() {
+		int max = 0;
+		for(int i=0; i<heightsArray.length; i++){
+			if(heightsArray[i] > max) max = heightsArray[i];
+		}
+		return max;
+	}
+	
+	/**
+	 Checks the board for internal consistency -- used
+	 for debugging.
+	*/
+	public void sanityCheck() {
+		if (DEBUG) {
+			if(!checkWidthsArray()) throw new RuntimeException("widthsArrayError");
+			if(!checkHeightsArray()) throw new RuntimeException("heightsArrayError");
+			if(!checkMaxHeight()) throw new RuntimeException("maxHeightError");
+		}
+	}
+	
+	private boolean checkWidthsArray(){
+		//generates a copy of widthsArray (goes along each row and counts the elements in it)
+		int[] tempWidths = new int[height];
+		for(int i=0; i<height; i++){
+			tempWidths[i] = 0;
+			for(int j=0; j<width; j++){
+				if(grid[j][i]){
+					tempWidths[i]++;
+				}
+			}
+		}
+		//compares the copy to the original
+		for(int i=0; i<widthsArray.length; i++){
+			if(!(tempWidths[i] == widthsArray[i])) return false;
+		}	
+		return true;
+	}
+	
+	private boolean checkHeightsArray(){
+		//creates a copy of heightsArray
+		int[] tempHeights = new int[width];
+		for(int i=0; i<width; i++){
+			tempHeights[i] = 0;
+			for(int j=0; j<height; j++){
+				//if there's something at the location and it's the highest yet encountered
+				if(grid[i][j] && j>=tempHeights[i]) tempHeights[i] = j + 1;
+			}
+		}
+		//compares the copy to the original
+		for(int i=0; i<width; i++){
+			if((tempHeights[i] != heightsArray[i])) return false;
+		}
+		return true;
+	}
+	
+	private boolean checkMaxHeight(){
+		int max = 0;
+		for(int x=0; x<width; x++){
+			int maxYPerX = 0;
+			//finds the maximum filled y in each column
+			for(int y=1; y<height; y++){
+				if(grid[x][y]) maxYPerX = y;
+			}
+			//add one because zero-indexed
+			if(maxYPerX != 0) maxYPerX++;
+			//if zero is filled should return 1
+			if(maxYPerX==0 && grid[x][0]) maxYPerX++;
+			//sets the value of maxYPerX for the given x-value
+			if(maxYPerX > max) max = maxYPerX;
+		}
+		//compares the generated max to the stored one
+		if(getMaxHeight() == max) return true;
+		else return false;
+	}
+	
+	/**
+	 Given a piece and an x, returns the y
+	 value where the piece would come to rest
+	 if it were dropped straight down at that x.
+	 
+	 <p>
+	 Implementation: use the skirt and the col heights
+	 to compute this fast -- O(skirt length).
+	*/
+	public int dropHeight(Piece piece, int x) {
+		int dropHeight = 0;
+		//scans through the skirt and finds the lowest the piece can fall
+		for(int i=0; i<piece.getWidth(); i++){
+			if(heightsArray[x+i]-piece.getSkirt()[i] > dropHeight)
+			dropHeight = heightsArray[x+i] - piece.getSkirt()[i];
+		}
+		return dropHeight;
+	}
+	
+	/**
+	 Returns the height of the given column --
+	 i.e. the y value of the highest block + 1.
+	 The height is 0 if the column contains no blocks.
+	*/
+	public int getColumnHeight(int x) {
+		return heightsArray[x];
+	}
+	
+	/**
+	 Returns the number of filled blocks in
+	 the given row.
+	*/
+	public int getRowWidth(int y) {
+		 return widthsArray[y];
+	}
+	
+	/**
+	 Returns true if the given block is filled in the board.
+	 Blocks outside of the valid width/height area
+	 always return true.
+	*/
+	public boolean getGrid(int x, int y) {
+		if(x<0 || y<0 || x>=grid.length || y>=grid[x].length) return false;
+		if(grid[x][y] == true) return true;
+		else return false;
+	}
+	
+	public static final int PLACE_OK = 0;
+	public static final int PLACE_ROW_FILLED = 1;
+	public static final int PLACE_OUT_BOUNDS = 2;
+	public static final int PLACE_BAD = 3;
+	
+	/**
+	 Attempts to add the body of a piece to the board.
+	 Copies the piece blocks into the board grid.
+	 Returns PLACE_OK for a regular placement, or PLACE_ROW_FILLED
+	 for a regular placement that causes at least one row to be filled.
+	 
+	 <p>Error cases:
+	 A placement may fail in two ways. First, if part of the piece may falls out
+	 of bounds of the board, PLACE_OUT_BOUNDS is returned.
+	 Or the placement may collide with existing blocks in the grid
+	 in which case PLACE_BAD is returned.
+	 In both error cases, the board may be left in an invalid
+	 state. The client can use undo(), to recover the valid, pre-place state.
+	*/
+	public int place(Piece piece, int x, int y) {
+		if(committed) backUpBoard();
+		
+		// flag !committed problem
+		if (!committed) throw new RuntimeException("place commit problem");
+		
+		//if given coordinates are out of bounds return PLACE_OUT_BOUNDS
+		if(x<0 || y<0 || x>=grid.length || y>=grid[x].length) return PLACE_OUT_BOUNDS;
+		
+		TPoint[] locations = new TPoint[piece.getBody().length];
+		//construct new locations[] array of shifted coordinates (coordinates of the piece and entered (x, y))
+		for(int i=0; i<locations.length; i++){
+			int xCoor = piece.getBody()[i].x + x;
+			int yCoor = piece.getBody()[i].y + y;
+			
+			//returns PLACE_OUT_BOUNDS if any part of the new piece is out of bounds
+			if(xCoor >= width || yCoor >= height) return PLACE_OUT_BOUNDS;
+			//returns PLACE_BAD if any part of the new piece is already filled
+			if(grid[xCoor][yCoor]) return PLACE_BAD;
+			
+			locations[i] = new TPoint(xCoor, yCoor);
+		}
+		for(int i=0; i<locations.length; i++){
+			grid[locations[i].x][locations[i].y] = true;
+			heightsArray = fillHeightsArray();
+			widthsArray[locations[i].y]++;
+			//returns PLACE_ROW_FILLED if all parts have been placed and any row is filled now
+			if(i == locations.length-1 && rowFilled(locations)) return PLACE_ROW_FILLED;
+			//place() cannot be called twice in a row
+			committed = false;
+		}
+		return PLACE_OK;
+	}
+	
+	private int[] fillHeightsArray(){
+		int[] heights = new int[width];
+		for(int x=0; x<width; x++){
+			int maxHeight = 0;
+			for(int y=1; y<height; y++){
+				if(grid[x][y]) maxHeight = y;
+			}
+			//add one because zero-indexed
+			if(maxHeight != 0) maxHeight++;
+			//if zero is filled should return 1 (special case for 0 column)
+			if(maxHeight==0 && grid[x][0]) maxHeight++;
+			
+			heights[x] = maxHeight;
+		}
+		return heights;
+	}
+	
+	private boolean rowFilled(TPoint[] locations){
+		for(int i=0; i<locations.length; i++){
+			if(widthsArray[locations[i].y] == width) return true;
+		}
+		return false;
+	}
+	
+	//if committed and a change is made, back the board up before changing
+	public void backUpBoard(){
+		//create a copy of the original grid (same size)
+		gridCopy = new boolean[grid.length][grid[0].length];
+		for(int i=0; i<grid.length; i++){
+			//deepcopy each array stored in the base array
+			System.arraycopy(grid[i], 0, gridCopy[i], 0, grid[0].length);
+		}
+		
+		widthBackup = new int[widthsArray.length];
+		heightBackup = new int[heightsArray.length];
+		//backs  up the width and height arrays using deepcopy
+		System.arraycopy(widthsArray, 0, widthBackup, 0, widthsArray.length);
+		System.arraycopy(heightsArray, 0, heightBackup, 0, heightsArray.length);
+	}
+	
+	/**
+	 Deletes rows that are filled all the way across, moving
+	 things above down. Returns the number of rows cleared.
+	*/
+	public int clearRows() {
+		//backs up the board if in the newly committed state
+		if(committed) backUpBoard();
+		
+		int rowsCleared = 0;
+		for(int i=widthsArray.length-1; i>=0; i--){
+			//if is full
+			if(widthsArray[i] == heightsArray.length){
+				clearRow(i);
+				shiftDown(i);
+				rowsCleared++;
+				//update heightsArray accordingly
+				heightsArray = fillHeightsArray();
+			}
+		}
+		//ensures the grid is all accurate
+		sanityCheck();
+		
+		//sets committed to false because a change is made
+		committed = false;
+		
+		return rowsCleared;
+	}
+
+	public void clearRow(int fullRow){
+		//works through the full row passed into the method
+		for(int i=0; i<heightsArray.length-1; i++){
+			grid[i][fullRow] = false;
+		}
+	}
+	
+	public void shiftDown(int emptyRow){
+		//iterates upward through the column from the newly empty row
+		for(int i=emptyRow; i<grid[0].length-1; i++){
+			//iterates through the whole row
+			for(int j=0; j<grid.length; j++){
+				//shifts the row above down one
+				grid[j][i] = grid[j][i+1];
+				}
+			//updates widthsArray
+			widthsArray[i] = widthsArray[i+1];
+		}
+		//fills the top row in with false values
+		for(int j=0; j<grid.length; j++){
+			grid[j][grid[0].length-1] = false;
+		}
+		//updates widthsArray to be zero at the top
+		widthsArray[widthsArray.length-1] = 0;
+	}
+	
+	/**
+	 Reverts the board to its state before up to one place
+	 and one clearRows();
+	 If the conditions for undo() are not met, such as
+	 calling undo() twice in a row, then the second undo() does nothing.
+	 See the overview docs.
+	*/
+	
+	public void undo() {
+		if(!committed){
+		//reverts the grid to the stored gridCopy from the previous commit
+			for(int i=0; i<grid.length; i++){
+				for(int j=0; j<grid[0].length; j++){
+					grid[i][j] = gridCopy[i][j];
+				}
+			}
+			System.arraycopy(widthBackup, 0, widthsArray, 0, widthsArray.length);
+			System.arraycopy(heightBackup, 0, heightsArray, 0, heightsArray.length);
+			//can call place() now
+			committed = true;
+		}
+	}
+	
+	/**
+	 Puts the board in the committed state.
+	*/
+	public void commit() {
+		committed = true;
+	}
+	
+	/*
+	 Renders the board state as a big String, suitable for printing.
+	 This is the sort of print-obj-state utility that can help see complex
+	 state change over time.
+	 (provided debugging utility) 
+	 */
+	public String toString() {
+		StringBuilder buff = new StringBuilder();
+		for (int y = height-1; y>=0; y--) {
+			buff.append('|');
+			for (int x=0; x<width; x++) {
+				if (getGrid(x,y)) buff.append('+');
+				else buff.append(' ');
+			}
+			buff.append("|\n");
+		}
+		for (int x=0; x<width+2; x++) buff.append('-');
+		return(buff.toString());
+	}
+}
+
+
