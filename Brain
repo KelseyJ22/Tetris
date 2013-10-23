@@ -28,3 +28,4 @@ public interface Brain {
     */
     public Brain.Move bestMove(Board board, Piece piece, int limitHeight, Brain.Move move);
 }
+ 
